@@ -1,0 +1,120 @@
+﻿<%@ Master Language="C#" AutoEventWireup="true" CodeFile="Site.master.cs" Inherits="SiteMaster" %>
+
+<!DOCTYPE html>
+<%@ Register Src="LogOnUserControl.ascx" TagName="LogOnUserControl" TagPrefix="uc1" %>
+<html lang="en">
+<head runat="server">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta http-equiv="X-UA-Compatible" content="requiresActiveX=true" />
+
+    <title><%: Page.Title %> Felbro Intranet</title>
+    <asp:ContentPlaceHolder ID="HeadContent" runat="server">
+    </asp:ContentPlaceHolder>
+    <link href="~/favicon.ico" rel="shortcut icon" type="image/x-icon" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link href="Content/bootstrap.css" rel="stylesheet" />
+    <link href="Content/bootstrap.min.css" rel="stylesheet" type="text/css" />
+    <style type="text/css">
+        .nav {
+            width: 100%;
+            padding-left: 15px;
+        }
+
+        /*.vertical-menu {
+            position: absolute;
+            width: 200px;
+            height: auto;
+            max-height: 325px;
+            overflow-y: auto;
+        }*/
+    </style>
+    <link href="Content/MaterialDesign.css" rel="stylesheet" />
+    <link href="Content/Site.css" rel="stylesheet" />
+    <script type="text/javascript" src="Scripts/kissy-min.js"></script>
+    <script type="text/javascript" src="Scripts/bootstrap.js"></script>
+    <script type="text/javascript" src="Scripts/jquery-1.7.2.js"></script>
+    <script type="text/javascript" src="Scripts/jquery-1.10.2.min.js"></script>
+    <script type="text/javascript" src="Scripts/JqueryValidator.js"></script>
+
+   <%-- <script type="text/javascript">
+        $(function () {
+            //to fix collapse mode width issue
+            $(".nav li,.nav li a,.nav li ul").removeAttr('style');
+
+            //for dropdown menu
+            $(".dropdown-menu").parent().removeClass().addClass('dropdown');
+            $(".dropdown>a").removeClass().addClass('dropdown-toggle').append('<b class="caret"></b>').attr('data-toggle', 'dropdown');
+
+            //remove default click redirect effect           
+            $('.dropdown-toggle').attr('onclick', '').off('click');
+
+        });
+    </script>--%>
+</head>
+<body>
+    <form runat="server">
+        <asp:ScriptManager ID="ScriptManager1" runat="server" AsyncPostBackTimeout="3600"></asp:ScriptManager>
+
+
+
+        <div class="navbar navbar-inverse navbar-fixed-top">
+            <div class="" style="margin-right: 25px; margin-left: 20px; margin-top: 10px; margin-bottom: 20px">
+                <%-- <div>
+                   
+                </div>--%>
+
+
+                <a class="navbar-brand" runat="server" href="~/" style="font-family: arial, Helvetica, sans-serif; font-style: italic">Felbro Foods
+                </a>
+                <div style="float: right; margin-right: 1px">
+                    <uc1:LogOnUserControl ID="LogOnUserControl1" runat="server" />
+                </div>
+
+
+
+
+            </div>
+            <div class="container">
+
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                </div>
+                <br />
+                <div class="navbar-collapse collapse navbar-inverse-collapse">
+
+                    <asp:Menu ID="NavigationMenu" runat="server" EnableViewState="false"
+                        IncludeStyleBlock="false" OnMenuItemDataBound="MyMenu_MenuItemDataBound"
+                        DataSourceID="xmlDataSource"
+                        CssClass="navbar navbar-nav navbar-inverse"
+                        StaticMenuStyle-CssClass="nav navbar-nav"
+                        StaticSelectedStyle-CssClass="active"
+                        DynamicMenuStyle-CssClass="vertical-menu dropdown-menu">
+                        <DataBindings>
+                            <asp:MenuItemBinding DataMember="MenuItem" NavigateUrlField="NavigateUrl" TextField="Text"
+                                ToolTipField="ToolTip" TargetField="Target" ImageUrlField="ImageURL" />
+                        </DataBindings>
+                    </asp:Menu>
+                </div>
+            </div>
+        </div>
+        <div style="height: 125px"></div>
+        <!--used for spacing-->
+        <div class="container body-content">
+            <asp:ContentPlaceHolder ID="MainContent" runat="server">
+            </asp:ContentPlaceHolder>
+            <hr />
+            <footer>
+                <p>&copy; <%: DateTime.Now.Year %> - Felbro Intranet</p>
+                <asp:XmlDataSource ID="xmlDataSource" runat="server" TransformFile="~/TransformXSLT.xsl"
+                    EnableCaching="false" XPath="MenuItems/MenuItem" />
+            </footer>
+        </div>
+    </form>
+</body>
+</html>

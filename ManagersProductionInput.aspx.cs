@@ -1,0 +1,524 @@
+using System.Collections.Generic;
+using System;
+using System.Collections;
+using System.ComponentModel;
+using System.Data;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.Web;
+using System.Web.SessionState;
+using System.Web.UI;
+using System.Web.UI.WebControls;
+using System.Web.UI.HtmlControls;
+using System.Diagnostics;
+using System.Configuration;
+using System.Text.RegularExpressions;
+using System.Linq;
+using System.Data.Linq;
+using System.Xml.Linq;
+using AjaxControlToolkit;
+using System.IO;
+using System.Transactions;
+using System.Data.Linq.SqlClient;
+
+using System.Net;
+using System.Xml;
+using System.Web.Script.Serialization;
+using System.Net.Sockets;
+using System.Text;
+public partial class ManagersProductionInput : System.Web.UI.Page
+{
+    decimal dcTotalHours = 0;
+    decimal dcTotalHoursOfficial = 0;
+    decimal dcTotalHoursShort = 0;
+
+
+    private string GridViewSortDirection
+    {
+        get
+        {
+            return Session["SortDirection"] as string ?? "DESC";
+        }
+        set
+        {
+            Session["SortDirection"] = value;
+        }
+    }
+    const string sDocPath = @"Images\Documents\";
+
+    #region Properties
+
+    #endregion
+
+    //NOTE: You can not have an update panel if you want to use a call back to the parent page...
+    #region Subs
+    private void BindEmployees(Int64 iJob)
+    {
+
+        DataTable dt = new DataTable();
+        using (FELBRO db = new FELBRO(System.Configuration.ConfigurationManager.ConnectionStrings["SQL"].ConnectionString))
+        {
+            var query = (from wea in db.WipEmployeeAssigns
+                         join wpl in db.WipProductionLineAssigns on wea.ProLineID equals wpl.ProLineID
+                         where
+                           Convert.ToInt64(wpl.Job) == iJob
+                         orderby
+                           wea.WipEmployees.FirstName,
+                           wea.WipEmployees.LastName
+                         select new
+                         {
+                             wea.WipEmployees.EmployeeID,
+                             Employee = (wea.WipEmployees.FirstName + " " + (wea.WipEmployees.MiddleName ?? "") + " " + wea.WipEmployees.LastName).Replace("  ", " "),
+                             Hours =
+                                ((from wji in db.WipEmployeeJobHours
+                                  where
+                                    wji.Job == wpl.Job &&
+                                    wji.EmployeeID == wea.EmployeeID
+                                  select new
+                                  {
+                                      wji.Hours
+                                  }).First().Hours)
+                         });
+            dt = SharedFunctions.ToDataTable(db, query);
+
+            if (dt.Rows.Count > 0)
+            {
+                dcTotalHours = 0;
+                gvRecord.DataSource = dt;
+                gvRecord.DataBind();
+                Session["dtRecord"] = dt;
+                btnSubmit.Visible = true;
+            }
+            else//No records then create a dummy record to make Gridview still show up...
+            {
+                //Add a blank row to the dataset
+                dt.Rows.Add(dt.NewRow());
+                //Bind the DataSet to the GridView
+                gvRecord.DataSource = dt;
+                gvRecord.DataBind();
+                //Get the number of columns to know what the Column Span should be
+                int columnCount = gvRecord.Rows[0].Cells.Count;
+                //Call the clear method to clear out any controls that you use in the columns.  I use a dropdown list in one of the column so this was necessary.
+                gvRecord.Rows[0].Cells.Clear();
+                gvRecord.Rows[0].Cells.Add(new TableCell());
+                gvRecord.Rows[0].Cells[0].ColumnSpan = columnCount;
+                gvRecord.Rows[0].Cells[0].Text = "No production line with Employees assigned to this job!";
+                btnSubmit.Visible = false;
+
+            }
+        }
+    }
+
+    #endregion
+
+    #region Function
+
+    private int RecordHours(string sJob)
+    {//loop through the gridview and record hours..
+        using (FELBRO db = new FELBRO(System.Configuration.ConfigurationManager.ConnectionStrings["SQL"].ConnectionString))
+        {
+            string sMsg = "";
+            Label lblEmployeeID;
+            Label lblEmployee;
+            TextBox txtHours;
+            decimal dcHours = 0;
+            int iEmployeeID = 0;
+            string sEmployee = "";
+            int iLastInStringIdx = 0;
+
+            //First check to see if all hours are recorded...
+            for (int i = 0; i < gvRecord.Rows.Count; i++)
+            {
+                lblEmployeeID = (Label)gvRecord.Rows[i].FindControl("lblEmployeeID");
+                lblEmployee = (Label)gvRecord.Rows[i].FindControl("lblEmployee");
+                txtHours = (TextBox)gvRecord.Rows[i].FindControl("txtHours");
+                if (txtHours.Text.Trim() == "")
+                {
+                    txtHours.Text = "0";
+                }
+                dcHours = Convert.ToDecimal(txtHours.Text);
+                dcTotalHours += dcHours;
+
+            }
+            if (sMsg.Trim().EndsWith(","))
+            {
+                iLastInStringIdx = sMsg.LastIndexOf(",");
+                sMsg = sMsg.Remove(iLastInStringIdx).Trim();
+            }
+            if (sMsg.Length > 0)
+            {
+                lblError.Text = "**You are missing hours for: <br/><font color='Blue'>" + sMsg + "</font> Please go back and fill them in!";
+                lblError.ForeColor = Color.Red;
+                return 0;
+            }
+            dcTotalHoursOfficial = SharedFunctions.GetJobHours(sJob);//Get Official Hours...
+            if (dcTotalHoursOfficial == 0)
+            {
+                lblError.Text = "**No Official Hours to record!";
+                lblError.ForeColor = Color.Red;
+                return 0;
+            }
+            dcTotalHoursShort = dcTotalHoursOfficial - dcTotalHours;
+            if (dcTotalHours < dcTotalHoursOfficial)//Short Hours!!!
+            {
+                lblError.Text = "**You do not have enough hours to record, you are short <font color='Blue'><b>" + dcTotalHoursShort.ToString("0.00") + "</b></font> hours!";
+                lblError.ForeColor = Color.Red;
+                return 0;
+            }
+            if (dcTotalHours > dcTotalHoursOfficial)//Short Hours!!!
+            {
+                lblError.Text = "**You are trying to record <font color='Blue'><b>" + dcTotalHoursShort.ToString("0.00").Replace("-", "") + "</b></font> hours more that is needed!";
+                lblError.ForeColor = Color.Red;
+                return 0;
+            }
+
+            //If no issues record hours..
+            for (int i = 0; i < gvRecord.Rows.Count; i++)
+            {
+                lblEmployeeID = (Label)gvRecord.Rows[i].FindControl("lblEmployeeID");
+                lblEmployee = (Label)gvRecord.Rows[i].FindControl("lblEmployee");
+                txtHours = (TextBox)gvRecord.Rows[i].FindControl("txtHours");
+                dcHours = Convert.ToDecimal(txtHours.Text);
+                iEmployeeID = Convert.ToInt32(lblEmployeeID.Text);
+                sEmployee = lblEmployee.Text;
+
+
+                try
+                {
+                    //Add record for employee in loop...
+                    WipEmployeeJobHours jh = new WipEmployeeJobHours();
+                    jh.Job = sJob;
+                    jh.EmployeeID = iEmployeeID;
+                    jh.Hours = dcHours;
+                    db.WipEmployeeJobHours.InsertOnSubmit(jh);
+                    db.SubmitChanges();
+
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                    Debug.WriteLine("Error with " + sEmployee);
+                }
+
+            }//End loop...
+
+            // BindEmployees(sJob);//Dont bind for managers...
+
+            lblError.Text = "**All recorded successfully!";
+            lblError.ForeColor = Color.Green;
+            return 1;
+        }
+    }
+    private string GetSortDirection()
+    {
+        switch (GridViewSortDirection)
+        {
+            case "ASC":
+                GridViewSortDirection = "DESC";
+                break;
+            case "DESC":
+                GridViewSortDirection = "ASC";
+                break;
+        }
+        return GridViewSortDirection;
+    }
+
+    private List<string> CheckToSeeIfAnyFilesAreOpenedBeforConversion(Int64 iLeadID)
+    {
+        List<string> lOpenedFiles = new List<string>();
+        try
+        {
+            bool bFileIsOpened = false;
+
+            System.IO.DirectoryInfo[] subDirs = null;
+            string sDocumentPath = MapPath(sDocPath);
+            DirectoryInfo diDocs = new DirectoryInfo(sDocumentPath);
+            subDirs = diDocs.GetDirectories();
+            string sOriginalRootFolderName = "";
+
+            foreach (System.IO.DirectoryInfo dirInfo in subDirs)
+            {
+                // Resursive call for each subdirectory.
+                if (dirInfo.FullName.Contains("ID" + iLeadID.ToString()))
+                {
+                    sOriginalRootFolderName = dirInfo.FullName;
+                    break;
+                }
+            }
+
+            if (sOriginalRootFolderName != "")//There is a Lead Folder...
+            {
+
+                diDocs = new DirectoryInfo(sOriginalRootFolderName);
+                foreach (var file in diDocs.GetFiles())
+                {//Check to see if file is opened...                
+
+                    bFileIsOpened = IsFileLocked(file);
+                    if (bFileIsOpened)
+                    {//If Opened add to list...
+                        lOpenedFiles.Add(file.FullName);
+                    }
+                }
+            }
+            return lOpenedFiles;
+        }
+        catch (IOException xx)
+        {
+            lblError.Text = "*Either a file is open in the Lead folder you are trying to convert, please close it or if this is an older customer, check to see if there is a Lead Folder that exists for this customer and delete it, then try again!";
+            lblError.ForeColor = System.Drawing.Color.Red;
+            Debug.WriteLine(xx.ToString());
+            return lOpenedFiles;
+        }
+    }
+    protected virtual bool IsFileLocked(FileInfo file)
+    {
+        try
+        {
+            using (FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                stream.Close();
+            }
+        }
+        catch (IOException)
+        {
+            //the file is unavailable because it is:
+            //still being written to
+            //or being processed by another thread
+            //or does not exist (has already been processed)
+            return true;
+        }
+
+        //file is not locked
+        return false;
+    }
+    #endregion
+
+    #region Events
+
+    protected void Page_PreInit(object sender, EventArgs e)
+    {
+ 
+ 
+    }
+    protected void Page_Load(object sender, EventArgs e)
+    {
+        int iUserID = 0;
+        if (Session["UserID"] == null)
+        {
+            Response.Redirect("Default.aspx");
+        }
+        else
+        {
+            iUserID = Convert.ToInt32(Session["UserID"]);
+            string sUrl = @"http://localhost" + Request.ServerVariables["URL"].ToString();//Just has to be a valid web path...
+            Uri uri = new Uri(sUrl);
+            string[] segments = uri.Segments;
+            foreach (string s in segments)
+            {
+                sUrl = s;//Will hold the last segment...
+            }
+            string sText = SharedFunctions.GetMenuItemText(sUrl);
+            int? iAdminID = SharedFunctions.GetAdminID(iUserID);
+            if (!SharedFunctions.IsAccessGranted(iAdminID, sText))
+            {
+                Response.Redirect("Default.aspx");
+            }
+        }
+        string sJob = "";
+        if (Request.QueryString["job"] != null)
+        {
+            sJob = Request.QueryString["job"].ToString();
+        }
+        Int64 iJob = 0;
+        if (sJob != "")
+        {
+            iJob = Convert.ToInt64(sJob);
+        }
+
+        DataTable dt = SharedFunctions.GetJobDescriptionAndStockCode(iJob);
+        if (!Page.IsPostBack)
+        {
+            BindEmployees(iJob);
+            lblJob.Text = "Stk#: " + dt.Rows[0]["StockCode"].ToString() + " : " + dt.Rows[0]["JobDescription"].ToString() + " - Job: (" + sJob + ") PL:" + dt.Rows[0]["LineName"].ToString();
+        } 
+ 
+        if (Page.IsPostBack)
+        {
+            ScriptManager.RegisterStartupScript(this, this.GetType(), "isPostBack", "$(document).ready(isPostBack);", true);
+ 
+        }
+        dt.Dispose();
+    }
+    protected void lbnSave_Click(object sender, EventArgs e)
+    {
+        int iResult = 0;
+        lblError.Text = "";
+
+        
+       // iResult = UpdateRecord();
+        if (iResult == 1)
+        {
+            
+            ////GetLeadDetails(iLeadID);//Refresh Leads data...
+
+            //Needed for callback to parent windows...
+            string code = "<script>window.opener.document.getElementById('MainContent_popUpAnchor').click();</script>";
+
+            if (!ClientScript.IsClientScriptBlockRegistered("someKey"))
+            {
+                ClientScript.RegisterStartupScript(this.GetType(), "someKey", code);
+            }
+            //Reload parent page...
+            //if (!ClientScript.IsClientScriptBlockRegistered("Popup"))
+            //{
+            //    ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup", "window.opener.unbindOBE();window.opener.location.reload();", true);
+            //}
+            if (!ClientScript.IsClientScriptBlockRegistered("Popup"))
+            {
+                ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup", "window.opener.location.reload();window.opener.unbindOBE(); ", true);
+            }
+            Session["Event"] = 1;
+            
+        }
+
+    }
+    protected void lbnSaveAndClose_Click(object sender, EventArgs e)
+    {
+        int iResult = 0;
+        lblError.Text = "";
+        string sJob = "";
+        if (Request.QueryString["job"] != null)
+        {
+            sJob = Request.QueryString["job"].ToString();
+        }
+        iResult = RecordHours(sJob);
+        if (iResult == 1)
+        {
+           //// RemoveFromLockList();
+
+            string code = "<script>window.opener.document.getElementById('MainContent_popUpAnchor').click();</script>";
+
+            //call back to parent page...
+            if (!ClientScript.IsClientScriptBlockRegistered("someKey"))
+            {
+                ClientScript.RegisterStartupScript(this.GetType(), "someKey", code);
+            }
+            if (!ClientScript.IsClientScriptBlockRegistered("Popup2"))
+            {
+                ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup2", "window.self.close(); ", true);
+            }
+            // Close window and call back to parent page...
+            if (!ClientScript.IsClientScriptBlockRegistered("Popup"))
+            {
+                ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup", "window.opener.location.reload(); ", true);
+            }
+
+            Session["Event"] = 1;
+
+        }
+
+    }
+    protected void btnSubmit_Click(object sender, EventArgs e)
+    {
+        int iResult = 0;
+        lblError.Text = "";
+        string sJob = "";
+        if (Request.QueryString["job"] != null)
+        {
+            sJob = Request.QueryString["job"].ToString();
+        }
+        iResult = RecordHours(sJob);
+        if (iResult == 1)
+        {
+            //// RemoveFromLockList();
+
+            string code = "<script>window.opener.document.getElementById('MainContent_popUpAnchor').click();</script>";
+
+            //call back to parent page...
+            if (!ClientScript.IsClientScriptBlockRegistered("someKey"))
+            {
+                ClientScript.RegisterStartupScript(this.GetType(), "someKey", code);
+            }
+            if (!ClientScript.IsClientScriptBlockRegistered("Popup2"))
+            {
+                ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup2", "window.self.close(); ", true);
+            }
+            // Close window and call back to parent page...
+            if (!ClientScript.IsClientScriptBlockRegistered("Popup"))
+            {
+                ClientScript.RegisterClientScriptBlock(this.GetType(), "Popup", "window.opener.location.reload(); ", true);
+            }
+
+            Session["Event"] = 1;
+
+        }
+    }
+    protected void gvRecord_RowDataBound(object sender, GridViewRowEventArgs e)
+    {
+        lblError.Text = "";
+        string sJob = "";
+        if (Request.QueryString["Job"] != null)
+        {
+            sJob = Request.QueryString["Job"].ToString();
+        }
+        decimal dcHours = 0;
+        if (e.Row.RowType == DataControlRowType.DataRow)
+        {
+            TextBox txtHours = (TextBox)e.Row.FindControl("txtHours");
+
+            if (txtHours.Text != "")
+            {
+                dcHours = Convert.ToDecimal(txtHours.Text);
+                dcTotalHours += dcHours;
+            }
+        }
+
+        if (e.Row.RowType == DataControlRowType.Footer)
+        {
+            Label lblTotalHours = (Label)e.Row.FindControl("lblTotalHours");
+            Label lblTotalHoursOfficial = (Label)e.Row.FindControl("lblTotalHoursOfficial");
+            dcTotalHoursOfficial = SharedFunctions.GetJobHours(sJob);
+            lblTotalHoursOfficial.Text = "Official Hours: <font color='Blue'><b>" + dcTotalHoursOfficial.ToString("0.00") + "</b></font>";
+            lblTotalHours.Text = "Total hours you Recorded: <font color='Blue'><b>" + dcTotalHours.ToString("0.00") + "</b></font>";
+
+        }
+    }
+    protected void HiddenButton_Click(object sender, EventArgs e)
+    {//put here anything you want to do after async Ajax upload...
+     //**No longer used since it breaks the multiple upload ability...
+     //Would get called every time a single files is uploaded. 
+ 
+    }
+ 
+    #endregion
+
+    [System.Web.Services.WebMethod]
+    public static void ClosePopup(Int64 iLeadID)
+    {
+        using (FELBRO db = new FELBRO(System.Configuration.ConfigurationManager.ConnectionStrings["SQL"].ConnectionString))
+        {
+
+            if (HttpContext.Current != null)
+            {
+                int iUserID = Convert.ToInt32(HttpContext.Current.Session["UserID"]);
+
+                string sPageType = "L";
+                //var query = (from ll in db.LockedList
+                //             where ll.PageID == iLeadID
+                //             && ll.UserID == iUserID
+                //             && ll.PageType == sPageType
+                //             select ll);
+                //foreach (var a in query)
+                //{
+                //    LockedList l = db.LockedList.Single(p => p.LockedID == a.LockedID);
+                //    db.LockedList.DeleteOnSubmit(l);
+                //    db.SubmitChanges();
+                //}
+
+            }
+        }
+    }
+
+
+
+}
